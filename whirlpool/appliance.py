@@ -148,6 +148,14 @@ class Appliance:
             return False
         return attribute in self._data_dict.get("attributes", {})
 
+    def get_attribute(self, attribute: str) -> str | None:
+        """Get attribute value (public accessor)."""
+        return self._get_attribute(attribute)
+
+    async def set_attribute(self, attribute: str, value: str) -> bool:
+        """Send a single attribute to the appliance."""
+        return await self.send_attributes({attribute: value})
+
     def bool_to_attr_value(self, b: bool) -> str:
         """Convert bool to attribute value"""
         return SETVAL_VALUE_ON if b else SETVAL_VALUE_OFF
