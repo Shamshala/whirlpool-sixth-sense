@@ -103,6 +103,7 @@ class AppliancesManager:
             "ddm_cooking_bio_g3evo_pyro_bk_v1",
             "ddm_cooking_bio_self_clean_meat_probe_tourmaline_bk_v1",
             "ddm_cooking_bio_self_clean_steam_tourmaline_v2",
+            "ddm_cooking_bi_midi_steam_tourmaline_v2",
         ]
 
         # Built-in microwave / combi-oven models (MwoCavity_ attribute prefix)
