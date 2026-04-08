@@ -11,7 +11,9 @@ from .aircon import Aircon
 from .appliance import Appliance
 from .auth import Auth
 from .backendselector import BackendSelector
+from .dishwasher import Dishwasher
 from .dryer import Dryer
+from .microwave import Microwave
 from .oven import Oven
 from .refrigerator import Refrigerator
 from .types import ApplianceInfo
@@ -32,19 +34,24 @@ class AppliancesManager:
         self._session: aiohttp.ClientSession = session
         self._event_socket: EventSocket | None = None
         self._aircons: dict[str, Any] = {}
+        self._dishwashers: dict[str, Any] = {}
         self._dryers: dict[str, Any] = {}
-        self._washers: dict[str, Any] = {}
+        self._microwaves: dict[str, Any] = {}
         self._ovens: dict[str, Any] = {}
         self._refrigerators: dict[str, Any] = {}
+        self._washers: dict[str, Any] = {}
+        self.unsupported_appliances: list[ApplianceInfo] = []
 
     @cached_property
     def all_appliances(self) -> dict[str, Appliance]:
         return {
             **self._aircons,
+            **self._dishwashers,
             **self._dryers,
-            **self._washers,
+            **self._microwaves,
             **self._ovens,
             **self._refrigerators,
+            **self._washers,
         }
 
     @property
@@ -52,12 +59,16 @@ class AppliancesManager:
         return list(self._aircons.values())
 
     @property
+    def dishwashers(self) -> list[Dishwasher]:
+        return list(self._dishwashers.values())
+
+    @property
     def dryers(self) -> list[Dryer]:
         return list(self._dryers.values())
 
     @property
-    def washers(self) -> list[Washer]:
-        return list(self._washers.values())
+    def microwaves(self) -> list[Microwave]:
+        return list(self._microwaves.values())
 
     @property
     def ovens(self) -> list[Oven]:
@@ -66,6 +77,10 @@ class AppliancesManager:
     @property
     def refrigerators(self) -> list[Refrigerator]:
         return list(self._refrigerators.values())
+
+    @property
+    def washers(self) -> list[Washer]:
+        return list(self._washers.values())
 
     def _add_appliance(self, appliance: dict[str, Any]) -> None:
         appliance_data = ApplianceInfo(
@@ -79,6 +94,7 @@ class AppliancesManager:
 
         data_model = appliance["DATA_MODEL_KEY"].lower()
 
+        # Built-in wall oven models (pure oven, no microwave cavity)
         oven_models = [
             "cooking_minerva",
             "cooking_vsi",
@@ -86,33 +102,45 @@ class AppliancesManager:
             "ddm_cooking_bio_self_clean_tourmaline_v2",
             "ddm_cooking_bio_g3evo_pyro_bk_v1",
             "ddm_cooking_bio_self_clean_meat_probe_tourmaline_bk_v1",
-            "ddm_cooking_bio_self_clean_steam_tourmaline_v2",      # <-- W9 Ovens
-            "ddm_cooking_bi_mwo_self_clean_steam_tourmaline_v2",   # <-- W9 MWOs
+            "ddm_cooking_bio_self_clean_steam_tourmaline_v2",
         ]
+
+        # Built-in microwave / combi-oven models (MwoCavity_ attribute prefix)
+        # Patterns: DDM_COOKING_BI_MWO_*, DDM_COOKING_BIMWO_*, DDM_COOKING_BIO_MWO_*
+        microwave_patterns = ("_bi_mwo_", "_bimwo_", "_bio_mwo_")
 
         LOGGER.debug("Adding appliance %s", appliance_data)
         if "airconditioner" in data_model:
             self._aircons[appliance_data.said] = Aircon(
                 self._backend_selector, self._auth, self._session, appliance_data
             )
+        elif "dishwasher" in data_model:
+            self._dishwashers[appliance_data.said] = Dishwasher(
+                self._backend_selector, self._auth, self._session, appliance_data
+            )
         elif "dryer" in data_model:
             self._dryers[appliance_data.said] = Dryer(
                 self._backend_selector, self._auth, self._session, appliance_data
             )
-        elif "washer" in data_model:
-            self._washers[appliance_data.said] = Washer(
+        elif any(pat in data_model for pat in microwave_patterns):
+            self._microwaves[appliance_data.said] = Microwave(
                 self._backend_selector, self._auth, self._session, appliance_data
             )
         elif any(model in data_model for model in oven_models):
             self._ovens[appliance_data.said] = Oven(
                 self._backend_selector, self._auth, self._session, appliance_data
             )
-        elif "ddm_ted_refrigerator_v12" in data_model:
+        elif "refrigerator" in data_model:
             self._refrigerators[appliance_data.said] = Refrigerator(
+                self._backend_selector, self._auth, self._session, appliance_data
+            )
+        elif "washer" in data_model:
+            self._washers[appliance_data.said] = Washer(
                 self._backend_selector, self._auth, self._session, appliance_data
             )
         else:
             LOGGER.warning("Unsupported appliance data model %s", data_model)
+            self.unsupported_appliances.append(appliance_data)
             return
 
         # Invalidate cached property
