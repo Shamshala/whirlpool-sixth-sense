@@ -70,6 +70,7 @@ class CookMode(Enum):
     ConvectRoast = 16
     KeepWarm = 24
     AirFry = 41
+    Steam = 42
 
 
 COOK_MODE_MAP = {
@@ -106,6 +107,7 @@ class CavityState(Enum):
     Preheating = 1
     Cooking = 2
     NotPresent = 4
+    Paused = 5
 
 
 CAVITY_STATE_MAP = {
@@ -339,3 +341,111 @@ class Oven(Appliance):
         return await self.send_attributes(
             {ATTR_SABBATH_MODE: self.bool_to_attr_value(on)}
         )
+
+
+# ---------------------------------------------------------------------------
+# CombiOven — built-in combi ovens using the Mwo_ attribute prefix
+# Confirmed from DDM_COOKING_BI_MIDI_STEAM_TOURMALINE_V2 live shadow data.
+# These devices use "Mwo_" (full-word postfixes) instead of "OvenUpperCavity_".
+# Single-cavity only; lower-cavity queries return None / NotPresent.
+# ---------------------------------------------------------------------------
+
+ATTR_MWO_OP_STATE       = "Mwo_OperationStatusState"
+ATTR_MWO_DOOR_OPEN      = "Mwo_OperationStatusDoorOpen"
+ATTR_MWO_DISPLAY_TEMP   = "Mwo_DisplayStatusDisplayTemp"
+ATTR_MWO_TARGET_TEMP    = "Mwo_CycleSetTargetTemp"
+ATTR_MWO_TIME_REMAINING = "Mwo_TimeStatusCookTimeRemaining"
+ATTR_MWO_TIME_ELAPSED   = "Mwo_TimeStatusCycleTimeElapsed"
+ATTR_MWO_TIME_SET       = "Mwo_TimeSetCookTimeSet"
+ATTR_MWO_LIGHT          = "Mwo_DisplaySetLightOn"
+ATTR_MWO_OPERATIONS     = "Mwo_OperationSetOperations"
+
+# Observed state values for Mwo_OperationStatusState
+ATTRVAL_MWO_STATE_STANDBY = "0"
+ATTRVAL_MWO_STATE_COOKING = "4"   # confirmed: program running, door closed
+ATTRVAL_MWO_STATE_PAUSED  = "7"   # confirmed: program paused / door open
+
+_MWO_STATE_MAP: dict[str, CavityState] = {
+    ATTRVAL_MWO_STATE_STANDBY: CavityState.Standby,
+    ATTRVAL_MWO_STATE_COOKING: CavityState.Cooking,
+    ATTRVAL_MWO_STATE_PAUSED:  CavityState.Paused,
+}
+
+# Boolean mode flag attributes → CookMode
+# Note: culinary-centre programs do not set these flags; get_cook_mode()
+# returns Standby in that case even while the oven is actively cooking.
+_MWO_MODE_ATTRS: dict[str, CookMode] = {
+    "Mwo_ModeSetRegularBake":        CookMode.Bake,
+    "Mwo_ModeSetConvectBake":        CookMode.ConvectBake,
+    "Mwo_ModeSetRegularConvectBake": CookMode.ConvectBake,
+    "Mwo_ModeSetConvectRoast":       CookMode.ConvectRoast,
+    "Mwo_ModeSetBroilAndGrill":      CookMode.Broil,
+    "Mwo_ModeSetKeepWarm":           CookMode.KeepWarm,
+    "Mwo_ModeSetSteamCook":          CookMode.Steam,
+}
+
+
+class CombiOven(Oven):
+    """Built-in combi oven (BI_MIDI_STEAM etc.) using Mwo_ attribute schema.
+
+    Subclasses Oven so it can be stored in the same _ovens dict and handled
+    by the same HA sensor/switch code.  All method signatures are compatible
+    with Oven; Cavity.Lower queries return None / NotPresent.
+    """
+
+    def get_cavity_state(self, cavity: Cavity = Cavity.Upper) -> CavityState | None:
+        if cavity == Cavity.Lower:
+            return CavityState.NotPresent
+        state = self._get_attribute(ATTR_MWO_OP_STATE)
+        result = _MWO_STATE_MAP.get(state)
+        if result is None and state is not None:
+            LOGGER.warning("Unknown CombiOven state: %s", state)
+        return result
+
+    def get_door_opened(self, cavity: Cavity = Cavity.Upper) -> bool | None:
+        if cavity == Cavity.Lower:
+            return None
+        return self.attr_value_to_bool(self._get_attribute(ATTR_MWO_DOOR_OPEN))
+
+    def get_temp(self, cavity: Cavity = Cavity.Upper) -> float | None:
+        if cavity == Cavity.Lower:
+            return None
+        t = self._get_int_attribute(ATTR_MWO_DISPLAY_TEMP)
+        if t is None or t == 0:
+            return None
+        return t / 10
+
+    def get_target_temp(self, cavity: Cavity = Cavity.Upper) -> float | None:
+        if cavity == Cavity.Lower:
+            return None
+        t = self._get_int_attribute(ATTR_MWO_TARGET_TEMP)
+        if t is None or t == 0:
+            return None
+        return t / 10
+
+    def get_time_remaining(self) -> int | None:
+        """Seconds remaining in the current cook cycle."""
+        t = self._get_attribute(ATTR_MWO_TIME_REMAINING)
+        return int(t) if t is not None else None
+
+    def get_cook_time(self, cavity: Cavity = Cavity.Upper) -> int | None:
+        if cavity == Cavity.Lower:
+            return None
+        t = self._get_attribute(ATTR_MWO_TIME_ELAPSED)
+        return int(t) if t is not None else None
+
+    def get_cook_mode(self, cavity: Cavity = Cavity.Upper) -> CookMode | None:
+        if cavity == Cavity.Lower:
+            return None
+        for attr, mode in _MWO_MODE_ATTRS.items():
+            if self.attr_value_to_bool(self._get_attribute(attr)):
+                return mode
+        return CookMode.Standby
+
+    def get_light(self, cavity: Cavity = Cavity.Upper) -> bool | None:
+        if cavity == Cavity.Lower:
+            return None
+        return self.attr_value_to_bool(self._get_attribute(ATTR_MWO_LIGHT))
+
+    async def set_light(self, on: bool, cavity: Cavity = Cavity.Upper) -> bool:
+        return await self.send_attributes({ATTR_MWO_LIGHT: self.bool_to_attr_value(on)})
