@@ -94,18 +94,6 @@ class AppliancesManager:
 
         data_model = appliance["DATA_MODEL_KEY"].lower()
 
-        # Built-in wall oven models (pure oven, no microwave cavity)
-        oven_models = [
-            "cooking_minerva",
-            "cooking_vsi",
-            "cooking_u2",
-            "ddm_cooking_bio_self_clean_tourmaline_v2",
-            "ddm_cooking_bio_g3evo_pyro_bk_v1",
-            "ddm_cooking_bio_self_clean_meat_probe_tourmaline_bk_v1",
-            "ddm_cooking_bio_self_clean_steam_tourmaline_v2",
-            "ddm_cooking_bi_midi_steam_tourmaline_v2",
-        ]
-
         # Built-in microwave / combi-oven models (MwoCavity_ attribute prefix)
         # Patterns: DDM_COOKING_BI_MWO_*, DDM_COOKING_BIMWO_*, DDM_COOKING_BIO_MWO_*
         microwave_patterns = ("_bi_mwo_", "_bimwo_", "_bio_mwo_")
@@ -127,7 +115,9 @@ class AppliancesManager:
             self._microwaves[appliance_data.said] = Microwave(
                 self._backend_selector, self._auth, self._session, appliance_data
             )
-        elif any(model in data_model for model in oven_models):
+        elif "cooking_" in data_model:
+            # Catch-all for built-in ovens (BI, BIO, MIDI, steam, pyro, …).
+            # Microwave patterns are checked above, so no overlap.
             self._ovens[appliance_data.said] = Oven(
                 self._backend_selector, self._auth, self._session, appliance_data
             )
