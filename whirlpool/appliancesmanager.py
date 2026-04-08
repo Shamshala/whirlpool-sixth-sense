@@ -14,7 +14,7 @@ from .backendselector import BackendSelector
 from .dishwasher import Dishwasher
 from .dryer import Dryer
 from .microwave import Microwave
-from .oven import Oven
+from .oven import CombiOven, Oven
 from .refrigerator import Refrigerator
 from .types import ApplianceInfo
 from .washer import Washer
@@ -115,9 +115,15 @@ class AppliancesManager:
             self._microwaves[appliance_data.said] = Microwave(
                 self._backend_selector, self._auth, self._session, appliance_data
             )
+        elif "_midi_" in data_model:
+            # Built-in combi ovens (BI_MIDI_STEAM etc.) use Mwo_ attribute schema.
+            # Confirmed from DDM_COOKING_BI_MIDI_STEAM_TOURMALINE_V2 shadow data.
+            self._ovens[appliance_data.said] = CombiOven(
+                self._backend_selector, self._auth, self._session, appliance_data
+            )
         elif "cooking_" in data_model:
-            # Catch-all for built-in ovens (BI, BIO, MIDI, steam, pyro, …).
-            # Microwave patterns are checked above, so no overlap.
+            # Catch-all for built-in ovens (BI, BIO, steam, pyro, …).
+            # Microwave and _midi_ patterns are checked above, so no overlap.
             self._ovens[appliance_data.said] = Oven(
                 self._backend_selector, self._auth, self._session, appliance_data
             )
